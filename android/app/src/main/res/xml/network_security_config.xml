@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  This app talks to a personal backend over plain HTTP on a local network
+  (emulator host 10.0.2.2 or a LAN IP), so cleartext has to stay permitted in
+  release builds too. If the backend ever moves behind HTTPS, set
+  cleartextTrafficPermitted to false.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

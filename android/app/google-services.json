@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "851072425105",
+    "project_id": "azsolve-ac05b",
+    "storage_bucket": "azsolve-ac05b.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:851072425105:android:915508f6033b392adc7330",
+        "android_client_info": {
+          "package_name": "com.azsolve.user"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB7Q5zlWkHZ6AoYbfT1eS7UIVoRN9QiyNU"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
