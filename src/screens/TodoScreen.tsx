@@ -27,6 +27,7 @@ import {
   removeTodo,
 } from '../db';
 import EditTodoModal from '../components/EditTodoModal';
+import { useSettingsStore } from '../store/settingsStore';
 import { AnimatedSwap, FadeSlideIn, PressableScale, Shimmer } from '../components/ui/motion';
 import { CloseIcon } from '../components/ui/icons';
 import {
@@ -60,7 +61,7 @@ const PROGRESS_DURATION_MS = 8000;
  * isn't hidden, and the whole point of this screen is to look like an
  * ordinary task list to anyone else holding the phone.
  */
-const TITLE_TAP_COUNT = 5;
+const TITLE_TAP_COUNT = 3;
 /** …with all of them landing inside this rolling window. */
 const TITLE_TAP_WINDOW_MS = 2000;
 
@@ -222,6 +223,7 @@ export default function TodoScreen({ navigation }: Props) {
   const [showModal, setShowModal] = useState(false);
   const [editingTodo, setEditingTodo] = useState<TodoItem | null>(null);
   const [searchFocused, setSearchFocused] = useState(false);
+  const secretGesture = useSettingsStore((state) => state.secretGesture);
 
   // Bumped when the filter changes so the list remounts and re-staggers.
   // Deliberately not tied to the search box — restaggering on every keystroke
@@ -254,6 +256,10 @@ export default function TodoScreen({ navigation }: Props) {
   const titleTapsRef = useRef<number[]>([]);
 
   const handleTitleTap = useCallback(() => {
+    // Only one secret door is ever live — this one is disabled while the
+    // hold gesture is the chosen entry point, same no-op as a normal title.
+    if (secretGesture !== 'tap') return;
+
     const now = Date.now();
 
     // Keep only the taps still inside the window. Ageing them out is what
@@ -267,7 +273,7 @@ export default function TodoScreen({ navigation }: Props) {
       titleTapsRef.current = [];
       navigation.navigate('Chat');
     }
-  }, [navigation]);
+  }, [navigation, secretGesture]);
 
   const resetHoldState = useCallback(() => {
     if (showProgressTimerRef.current) clearTimeout(showProgressTimerRef.current);
@@ -288,6 +294,11 @@ export default function TodoScreen({ navigation }: Props) {
       Animated.spring(fabScale, { toValue: 0.9, ...motion.spring.snappy, useNativeDriver: true }),
       Animated.spring(fabRotate, { toValue: 1, ...motion.spring.gentle, useNativeDriver: true }),
     ]).start();
+
+    // The hold-to-unlock timers only run when that's the chosen gesture —
+    // otherwise a long press on the FAB is just a long press, no countdown,
+    // no ring, nothing to give away that it was ever a door.
+    if (secretGesture !== 'hold') return;
 
     // After 12s, show progress ring around FAB
     showProgressTimerRef.current = setTimeout(() => {

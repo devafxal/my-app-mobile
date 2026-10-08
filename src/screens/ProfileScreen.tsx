@@ -17,7 +17,7 @@ import { disconnectSocket, joinConversationRoom } from '../sockets';
 import { unregisterPushNotifications } from '../services/push';
 import { clearAllMessages } from '../db';
 import ServerSettingsModal from '../components/ServerSettingsModal';
-import { useSettingsStore, ThemeMode } from '../store/settingsStore';
+import { useSettingsStore, ThemeMode, SecretGesture } from '../store/settingsStore';
 import { useHideOnBackground } from '../hooks/useHideOnBackground';
 import { FadeSlideIn, PressableScale, Pulse } from '../components/ui/motion';
 import Field from '../components/ui/Field';
@@ -40,6 +40,11 @@ const THEME_OPTIONS: { value: ThemeMode; label: string }[] = [
   { value: 'dark', label: 'Dark' },
 ];
 
+const GESTURE_OPTIONS: { value: SecretGesture; label: string }[] = [
+  { value: 'tap', label: 'Tap title ×3' },
+  { value: 'hold', label: 'Hold + button' },
+];
+
 export default function ProfileScreen({ navigation }: Props) {
   const theme = useTheme();
   const styles = useThemedStyles(createStyles);
@@ -48,6 +53,8 @@ export default function ProfileScreen({ navigation }: Props) {
   const { user, logout, setPartner, setConversationId } = useAuthStore();
   const clearChat = useChatStore((state) => state.clearChat);
   const serverUrl = useSettingsStore((state) => state.serverUrl);
+  const secretGesture = useSettingsStore((state) => state.secretGesture);
+  const setSecretGesture = useSettingsStore((state) => state.setSecretGesture);
 
   const [partnerCode, setPartnerCode] = useState('');
   const [pairing, setPairing] = useState(false);
@@ -212,9 +219,38 @@ export default function ProfileScreen({ navigation }: Props) {
           </View>
         </FadeSlideIn>
 
+        {/* Chat access gesture */}
+        <FadeSlideIn index={3} offsetY={16}>
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>Chat Access</Text>
+            <View style={styles.segment}>
+              {GESTURE_OPTIONS.map((option) => {
+                const active = secretGesture === option.value;
+                return (
+                  <PressableScale
+                    key={option.value}
+                    style={[styles.segmentItem, active && styles.segmentItemActive]}
+                    activeScale={0.95}
+                    onPress={() => setSecretGesture(option.value)}
+                  >
+                    <Text style={[styles.segmentText, active && styles.segmentTextActive]}>
+                      {option.label}
+                    </Text>
+                  </PressableScale>
+                );
+              })}
+            </View>
+            <Text style={styles.segmentHint}>
+              {secretGesture === 'tap'
+                ? 'Tap "Tasks" three times quickly to open chat.'
+                : 'Hold the + button for 20 seconds to open chat.'}
+            </Text>
+          </View>
+        </FadeSlideIn>
+
         {/* Pairing Panel */}
         {!isPaired ? (
-          <FadeSlideIn index={3} offsetY={16}>
+          <FadeSlideIn index={4} offsetY={16}>
             <View style={styles.card}>
               <Text style={styles.cardTitle}>Pair with Partner</Text>
               <Text style={styles.infoText}>
@@ -252,7 +288,7 @@ export default function ProfileScreen({ navigation }: Props) {
             </View>
           </FadeSlideIn>
         ) : (
-          <FadeSlideIn index={3} offsetY={16}>
+          <FadeSlideIn index={4} offsetY={16}>
             <View style={styles.card}>
               <Text style={styles.cardTitle}>Linked Partner</Text>
 
@@ -293,7 +329,7 @@ export default function ProfileScreen({ navigation }: Props) {
         )}
 
         {/* Server address (changes with the network the backend runs on) */}
-        <FadeSlideIn index={4}>
+        <FadeSlideIn index={5}>
           <PressableScale
             style={styles.serverButton}
             activeScale={0.96}
@@ -304,7 +340,7 @@ export default function ProfileScreen({ navigation }: Props) {
         </FadeSlideIn>
 
         {/* Logout Button */}
-        <FadeSlideIn index={5}>
+        <FadeSlideIn index={6}>
           <PressableScale style={styles.dangerButton} activeScale={0.97} onPress={handleLogout}>
             <Text style={styles.dangerButtonText}>Sign Out</Text>
           </PressableScale>

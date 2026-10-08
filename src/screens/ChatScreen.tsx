@@ -19,6 +19,7 @@ import {
   Image,
   Modal,
   ActivityIndicator,
+  Keyboard,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -31,10 +32,11 @@ import { useConnectionStore } from '../store/connectionStore';
 import { connectSocket, emitTyping, emitMessageSeen, joinConversationRoom } from '../sockets';
 import { initDB, READ_MESSAGE_TTL_SECONDS, LocalMessage } from '../db';
 import { syncMessages } from '../services/sync';
-import { pickImageFromGallery, takePhotoWithCamera } from '../services/media';
+import { pickImageFromGallery, savePhotoToGallery, takePhotoWithCamera } from '../services/media';
 import { useHideOnBackground } from '../hooks/useHideOnBackground';
 import { FadeSlideIn, PressableScale, Pulse, Shimmer } from '../components/ui/motion';
 import {
+  ArrowUpIcon,
   CameraIcon,
   CheckTicks,
   ChevronDown,
@@ -42,7 +44,6 @@ import {
   CloseIcon,
   PendingIcon,
   ReplyIcon,
-  SendIcon,
 } from '../components/ui/icons';
 import {
   CHROME_FONT_CAP,
@@ -110,6 +111,64 @@ const formatTime = (isoString: string) => {
   }
 };
 
+// ─── Palette ────────────────────────────────────────────────────────────────
+
+/**
+ * Flat, minimal dark palette for this screen: near-black canvas, solid
+ * surfaces, hairline borders, white ink. No blur, gradients or shadows.
+ */
+const getGlass = (_theme: Theme) => {
+  return {
+    canvas: '#0B0B0D',
+    /** Header / input bar — same as the canvas, separated by a hairline. */
+    tint: '#0B0B0D',
+    rim: 'rgba(255,255,255,0.08)',
+    rimSubtle: 'rgba(255,255,255,0.06)',
+    /** Small chips — date pills, banners, avatar, attach button. */
+    chipBg: 'rgba(255,255,255,0.06)',
+    chipBorder: 'rgba(255,255,255,0.08)',
+    /** Outgoing bubble / accent fills. */
+    out: '#2A2A2E',
+    accent: '#3A3A40',
+    textMax: '#FFFFFF',
+    textHigh: 'rgba(255,255,255,0.88)',
+    textMid: 'rgba(255,255,255,0.6)',
+    textLow: 'rgba(255,255,255,0.42)',
+    textFaint: 'rgba(255,255,255,0.28)',
+    inputText: '#FFFFFF',
+    inputPlaceholder: 'rgba(255,255,255,0.4)',
+    shadowColor: '#000000',
+  };
+};
+
+type Glass = ReturnType<typeof getGlass>;
+
+/** Flat bar for chrome above/below the message list (header, input bar). */
+function GlassPanel({
+  glass,
+  style,
+  children,
+}: {
+  glass: Glass;
+  style?: any;
+  children?: React.ReactNode;
+}) {
+  return <View style={[{ backgroundColor: glass.tint }, style]}>{children}</View>;
+}
+
+/** Outgoing messages sit on a solid fill; incoming ones are plain text. */
+function BubbleShell({
+  style,
+  children,
+}: {
+  isMe: boolean;
+  glass: Glass;
+  style?: any;
+  children?: React.ReactNode;
+}) {
+  return <View style={style}>{children}</View>;
+}
+
 // ─── Heart Particle (love animation) ────────────────────────────────────────
 
 interface HeartParticle {
@@ -127,7 +186,9 @@ interface HeartParticle {
 
 /** Three bouncing dots typing indicator, styled as an incoming bubble. */
 function BouncingDotsIndicator() {
+  const theme = useTheme();
   const styles = useThemedStyles(createStyles);
+  const glass = useMemo(() => getGlass(theme), [theme]);
   const dot1 = useRef(new Animated.Value(0)).current;
   const dot2 = useRef(new Animated.Value(0)).current;
   const dot3 = useRef(new Animated.Value(0)).current;
@@ -166,7 +227,7 @@ function BouncingDotsIndicator() {
 
   return (
     <FadeSlideIn offsetY={8} style={styles.typingWrapper}>
-      <View style={styles.typingBubble}>
+      <View style={[styles.typingBubble, { backgroundColor: glass.chipBg, borderColor: glass.rimSubtle }]}>
         {[dot1, dot2, dot3].map((anim, i) => (
           <Animated.View key={i} style={[styles.typingDot, { transform: [{ translateY: anim }] }]} />
         ))}
@@ -179,9 +240,10 @@ function BouncingDotsIndicator() {
  * Burn-after-reading countdown. Urgency is carried by a quickening pulse and
  * a brighter bar rather than by turning red.
  */
-function BurnRing({ seenAt, isMe }: { seenAt: string; isMe: boolean }) {
+function BurnRing({ seenAt }: { seenAt: string; isMe: boolean }) {
   const theme = useTheme();
   const styles = useThemedStyles(createStyles);
+  const glass = useMemo(() => getGlass(theme), [theme]);
 
   const [secondsLeft, setSecondsLeft] = useState(() => {
     const elapsed = (Date.now() - new Date(seenAt).getTime()) / 1000;
@@ -226,8 +288,8 @@ function BurnRing({ seenAt, isMe }: { seenAt: string; isMe: boolean }) {
   }, [isUrgent, pulse]);
 
   const percent = Math.max(0, Math.min(100, (secondsLeft / READ_MESSAGE_TTL_SECONDS) * 100));
-  const tone = isMe ? theme.chat.outMeta : theme.chat.inMeta;
-  const urgentTone = isMe ? theme.chat.outText : theme.chat.inText;
+  const tone = glass.textFaint;
+  const urgentTone = glass.textMax;
 
   return (
     <Animated.View style={[styles.burnRow, { opacity: pulse }]}>
@@ -339,6 +401,7 @@ function SwipeableMessage({
 }) {
   const theme = useTheme();
   const styles = useThemedStyles(createStyles);
+  const glass = useMemo(() => getGlass(theme), [theme]);
   const panX = useRef(new Animated.Value(0)).current;
   const lastTapRef = useRef(0);
 
@@ -397,7 +460,7 @@ function SwipeableMessage({
           },
         ]}
       >
-        <ReplyIcon color={theme.ink.mid} size={15} />
+        <ReplyIcon color={glass.textMax} size={15} />
       </Animated.View>
 
       <Animated.View {...panResponder.panHandlers} style={{ transform: [{ translateX: panX }] }}>
@@ -418,6 +481,7 @@ function SwipeableMessage({
 function ScrollToBottomFAB({ visible, onPress }: { visible: boolean; onPress: () => void }) {
   const theme = useTheme();
   const styles = useThemedStyles(createStyles);
+  const glass = useMemo(() => getGlass(theme), [theme]);
   const [rendered, setRendered] = useState(visible);
   const anim = useRef(new Animated.Value(0)).current;
 
@@ -452,8 +516,13 @@ function ScrollToBottomFAB({ visible, onPress }: { visible: boolean; onPress: ()
         },
       ]}
     >
-      <PressableScale onPress={onPress} activeScale={0.88} style={styles.scrollFabButton}>
-        <ChevronDown color={theme.ink.high} size={15} />
+      <PressableScale onPress={onPress} activeScale={0.88}>
+        <GlassPanel
+          glass={glass}
+          style={[styles.scrollFabButton, { borderColor: glass.rim }]}
+        >
+          <ChevronDown color={glass.textMax} size={15} />
+        </GlassPanel>
       </PressableScale>
     </Animated.View>
   );
@@ -499,6 +568,7 @@ function PhotoBubble({
 }) {
   const styles = useThemedStyles(createStyles);
   const theme = useTheme();
+  const glass = useMemo(() => getGlass(theme), [theme]);
   const uri = useChatStore((state) => state.mediaUris[message.client_msg_id]);
   const ensureImageLoaded = useChatStore((state) => state.ensureImageLoaded);
   const isResolved = useChatStore((state) => message.client_msg_id in state.mediaUris);
@@ -517,12 +587,12 @@ function PhotoBubble({
       <TouchableOpacity activeOpacity={0.9} onPress={() => onPress(uri)}>
         <Image
           source={{ uri }}
-          style={[styles.photo, { width, height }]}
+          style={[styles.photo, { width, height, borderColor: glass.rimSubtle }]}
           resizeMode="cover"
         />
         {message.status === 'sending' && (
           <View style={styles.photoUploading}>
-            <ActivityIndicator size="small" color={theme.palette.onAccent} />
+            <ActivityIndicator size="small" color={glass.textMax} />
           </View>
         )}
       </TouchableOpacity>
@@ -543,7 +613,7 @@ function PhotoBubble({
           Photo deleted
         </Text>
       ) : (
-        <ActivityIndicator size="small" color={theme.ink.low} />
+        <ActivityIndicator size="small" color={glass.textLow} />
       )}
     </TouchableOpacity>
   );
@@ -557,6 +627,7 @@ export default function ChatScreen({ navigation }: Props) {
   const insets = useSafeAreaInsets();
   const theme = useTheme();
   const styles = useThemedStyles(createStyles);
+  const glass = useMemo(() => getGlass(theme), [theme]);
 
   /**
    * Bubble width is resolved in real pixels rather than a percentage.
@@ -608,17 +679,53 @@ export default function ChatScreen({ navigation }: Props) {
   const [showScrollFab, setShowScrollFab] = useState(false);
   /** Data URI of the photo open in the full-screen viewer, if any */
   const [viewerUri, setViewerUri] = useState<string | null>(null);
+  const [isSavingPhoto, setIsSavingPhoto] = useState(false);
+  // The bottom safe-area inset is only needed while the keyboard is down;
+  // with it up, the input bar should sit flush against the keyboard.
+  const [keyboardVisible, setKeyboardVisible] = useState(false);
+  useEffect(() => {
+    const showEvt = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvt = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const show = Keyboard.addListener(showEvt, () => setKeyboardVisible(true));
+    const hide = Keyboard.addListener(hideEvt, () => setKeyboardVisible(false));
+    return () => {
+      show.remove();
+      hide.remove();
+    };
+  }, []);
+
+  const handleSavePhoto = useCallback(async () => {
+    if (!viewerUri || isSavingPhoto) return;
+    setIsSavingPhoto(true);
+    try {
+      await savePhotoToGallery(viewerUri);
+      Alert.alert('Saved', 'Photo saved to your gallery.');
+    } catch (error: any) {
+      Alert.alert('Could not save', error?.message || 'Something went wrong saving the photo.');
+    } finally {
+      setIsSavingPhoto(false);
+    }
+  }, [viewerUri, isSavingPhoto]);
   const [isAttaching, setIsAttaching] = useState(false);
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isTypingRef = useRef(false);
   const flatListRef = useRef<FlatList>(null);
 
-  // ── Send button animation ─────────────────────────────────────────────
+  // ── Send-by-swipe-up ──────────────────────────────────────────────────
+  // There's no send button — swiping the input upward sends the draft.
   const hasDraft = inputMessage.trim().length > 0;
+  /** Hint chevron fades in once there's something to send. */
   const sendAppear = useRef(new Animated.Value(0)).current;
-  const sendPress = useRef(new Animated.Value(1)).current;
-  /** Drives the plane "flying off" on send. */
+  /** Drives the hint chevron launching off on send. */
   const sendFly = useRef(new Animated.Value(0)).current;
+  /** Follows the finger while swiping, then springs back. */
+  const inputDragY = useRef(new Animated.Value(0)).current;
+
+  // PanResponder callbacks are created once; these refs keep them reading the
+  // latest state/closure instead of whatever was current on first render.
+  const hasDraftRef = useRef(hasDraft);
+  hasDraftRef.current = hasDraft;
+  const handleSendRef = useRef<() => void>(() => {});
 
   useEffect(() => {
     Animated.spring(sendAppear, {
@@ -628,18 +735,32 @@ export default function ChatScreen({ navigation }: Props) {
     }).start();
   }, [hasDraft, sendAppear]);
 
-  const playSendAnimation = () => {
-    Animated.sequence([
-      Animated.timing(sendPress, {
-        toValue: 0.82,
-        duration: 70,
-        easing: motion.easing.in,
-        useNativeDriver: true,
-      }),
-      Animated.spring(sendPress, { toValue: 1, ...motion.spring.bouncy, useNativeDriver: true }),
-    ]).start();
+  const SWIPE_SEND_THRESHOLD = -44;
 
-    // The plane launches out of the button, then a fresh one fades back in
+  const inputPanResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => false,
+      // Only claims the gesture once it reads as a clear upward swipe, so a
+      // normal tap (to place the cursor) still reaches the TextInput.
+      onMoveShouldSetPanResponder: (_, gesture) =>
+        hasDraftRef.current && gesture.dy < -10 && Math.abs(gesture.dy) > Math.abs(gesture.dx) * 1.5,
+      onPanResponderMove: (_, gesture) => {
+        inputDragY.setValue(Math.max(SWIPE_SEND_THRESHOLD * 1.4, gesture.dy));
+      },
+      onPanResponderRelease: (_, gesture) => {
+        if (gesture.dy <= SWIPE_SEND_THRESHOLD) {
+          handleSendRef.current();
+        }
+        Animated.spring(inputDragY, { toValue: 0, ...motion.spring.snappy, useNativeDriver: true }).start();
+      },
+      onPanResponderTerminate: () => {
+        Animated.spring(inputDragY, { toValue: 0, ...motion.spring.snappy, useNativeDriver: true }).start();
+      },
+    })
+  ).current;
+
+  const playSendAnimation = () => {
+    // The chevron launches up out of the pill, then a fresh one fades back in
     Animated.sequence([
       Animated.timing(sendFly, {
         toValue: 1,
@@ -897,6 +1018,7 @@ export default function ChatScreen({ navigation }: Props) {
     // message off-screen — follow it down to the newest end of the list.
     flatListRef.current?.scrollToOffset({ offset: 0, animated: true });
   };
+  handleSendRef.current = handleSend;
 
   // ── 6b. Send a photo ──────────────────────────────────────────────────
   const sendPickedImage = async (source: 'camera' | 'gallery') => {
@@ -965,13 +1087,13 @@ export default function ChatScreen({ navigation }: Props) {
     switch (status) {
       case 'queued':
       case 'sending':
-        return <PendingIcon color={theme.chat.outMeta} size={11} />;
+        return <PendingIcon color={glass.textMid} size={11} />;
       case 'sent':
-        return <CheckTicks color={theme.chat.outMeta} size={12} />;
+        return <CheckTicks color={glass.textMid} size={12} />;
       case 'delivered':
-        return <CheckTicks double color={theme.chat.outMeta} size={12} />;
+        return <CheckTicks double color={glass.textMid} size={12} />;
       case 'seen':
-        return <CheckTicks double color={theme.chat.tickRead} size={12} />;
+        return <CheckTicks double color={glass.textMax} size={12} />;
       default:
         return null;
     }
@@ -1100,7 +1222,7 @@ export default function ChatScreen({ navigation }: Props) {
           {/* Date separator, WhatsApp-style centred pill */}
           {showDateSeparator && (
             <View style={styles.dateSeparator}>
-              <View style={styles.datePill}>
+              <View style={[styles.datePill, { backgroundColor: glass.chipBg, borderColor: glass.chipBorder }]}>
                 <Text style={styles.datePillText} maxFontSizeMultiplier={CHROME_FONT_CAP}>
                   {getDateLabel(item.created_at)}
                 </Text>
@@ -1121,24 +1243,24 @@ export default function ChatScreen({ navigation }: Props) {
                 onDoublePress={() => handleDoubleTap(item.client_msg_id)}
               >
                 <View style={[styles.bubbleColumn, { maxWidth: maxBubbleWidth }]}>
-                  {/* Tail on the first bubble of a run, as WhatsApp does */}
-                  {isFirstInGroup && (
-                    <View style={isMe ? styles.tailMe : styles.tailThem} />
-                  )}
+                  {/* Tail only on an outgoing bubble — incoming text has no
+                      bubble shape to grow one out of. */}
+                  {isFirstInGroup && isMe && <View style={styles.tailMe} />}
 
-                  <View style={[
-                    styles.bubble,
-                    isMe ? styles.myBubble : styles.theirBubble,
-                    isFirstInGroup && (isMe ? styles.myBubbleTailCorner : styles.theirBubbleTailCorner),
-                  ]}>
+                  <BubbleShell
+                    isMe={isMe}
+                    glass={glass}
+                    style={[
+                      styles.bubble,
+                      isMe ? styles.myBubble : styles.theirBubble,
+                      isFirstInGroup && isMe && styles.myBubbleTailCorner,
+                    ]}
+                  >
                     {/* Quoted reply */}
                     {item.reply_to ? (
                       <View style={[styles.quote, isMe ? styles.quoteMe : styles.quoteThem]}>
-                        <View style={[styles.quoteBar, isMe ? styles.quoteBarMe : styles.quoteBarThem]} />
-                        <Text
-                          style={[styles.quoteText, isMe ? styles.quoteTextMe : styles.quoteTextThem]}
-                          numberOfLines={2}
-                        >
+                        <View style={styles.quoteBar} />
+                        <Text style={styles.quoteText} numberOfLines={2}>
                           {item.reply_to}
                         </Text>
                       </View>
@@ -1185,7 +1307,7 @@ export default function ChatScreen({ navigation }: Props) {
                         <BurnRing seenAt={item.seen_at} isMe={isMe} />
                       </View>
                     )}
-                  </View>
+                  </BubbleShell>
 
                   {hasReaction && <ReactionBadge isMe={isMe} />}
                 </View>
@@ -1211,10 +1333,7 @@ export default function ChatScreen({ navigation }: Props) {
   if (checkingPair && messages.length === 0) {
     return (
       <View style={styles.loadingContainer}>
-        <StatusBar
-          barStyle={theme.mode === 'dark' ? 'light-content' : 'dark-content'}
-          backgroundColor={theme.surfaces.canvas}
-        />
+        <StatusBar barStyle="light-content" backgroundColor="transparent" translucent />
         <FadeSlideIn offsetY={0} scaleFrom={0.85}>
           <View style={styles.lockMark}>
             <View style={styles.lockShackle} />
@@ -1232,25 +1351,27 @@ export default function ChatScreen({ navigation }: Props) {
   const showCharCounter = charCount >= CHAR_WARN_THRESHOLD;
 
   return (
-    <SafeAreaView style={styles.container} edges={['top', 'left', 'right', 'bottom']}>
-      <StatusBar
-        barStyle={theme.mode === 'dark' ? 'light-content' : 'dark-content'}
-        backgroundColor={theme.surfaces.bar}
-      />
+    <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
+      <StatusBar barStyle="light-content" backgroundColor="transparent" translucent />
+
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={styles.flex}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? insets.bottom : (Platform.OS === 'android' ? 25 : 0)}
+        keyboardVerticalOffset={0}
       >
         {/* ── Header ── */}
-        <View style={styles.header}>
-          <PressableScale onPress={handleBackPress} style={styles.headerBackBtn} activeScale={0.86}>
-            <ChevronLeft color={theme.ink.high} size={18} />
+        <GlassPanel glass={glass} style={[styles.header, { borderBottomColor: glass.rim }]}>
+          <PressableScale
+            onPress={handleBackPress}
+            style={[styles.headerBackBtn, { backgroundColor: glass.chipBg, borderColor: glass.chipBorder }]}
+            activeScale={0.86}
+          >
+            <ChevronLeft color={glass.textMax} size={18} />
           </PressableScale>
 
           <PressableScale onPress={handleHeaderPress} style={styles.headerCenter} activeScale={0.985}>
             <View style={styles.avatarContainer}>
-              <View style={styles.avatar}>
+              <View style={[styles.avatar, { backgroundColor: glass.chipBg, borderColor: glass.chipBorder }]}>
                 <Text style={styles.avatarText}>{partnerInitial}</Text>
               </View>
               {isPartnerOnline && connectionStatus === 'connected' && (
@@ -1272,12 +1393,17 @@ export default function ChatScreen({ navigation }: Props) {
           </PressableScale>
 
           <View style={styles.headerSpacer} />
-        </View>
+        </GlassPanel>
 
         {/* ── Offline Banner ── */}
         {connectionStatus !== 'connected' && (
           <FadeSlideIn offsetY={-8} duration={motion.duration.fast}>
-            <View style={styles.offlineBanner}>
+            <View
+              style={[
+                styles.offlineBanner,
+                { backgroundColor: glass.chipBg, borderBottomColor: glass.rimSubtle },
+              ]}
+            >
               <View style={styles.offlineDot} />
               <Text style={styles.offlineText}>
                 {connectionStatus === 'connecting' ? 'Reconnecting' : 'Offline — messages queued'}
@@ -1366,7 +1492,7 @@ export default function ChatScreen({ navigation }: Props) {
         {/* ── Send failure notice ── */}
         {lastError && (
           <FadeSlideIn offsetY={12} duration={motion.duration.fast}>
-            <View style={styles.noticeBanner}>
+            <View style={[styles.noticeBanner, { backgroundColor: glass.chipBg, borderTopColor: glass.rimSubtle }]}>
               <View style={styles.noticeBar} />
               <View style={styles.noticeContent}>
                 <Text style={styles.noticeLabel}>Message not sent</Text>
@@ -1375,7 +1501,7 @@ export default function ChatScreen({ navigation }: Props) {
                 </Text>
               </View>
               <PressableScale onPress={clearError} style={styles.noticeClose} activeScale={0.85}>
-                <CloseIcon color={theme.ink.low} size={11} />
+                <CloseIcon color={glass.textMid} size={11} />
               </PressableScale>
             </View>
           </FadeSlideIn>
@@ -1384,7 +1510,7 @@ export default function ChatScreen({ navigation }: Props) {
         {/* ── Reply Preview ── */}
         {replyToMessage && (
           <FadeSlideIn offsetY={12} duration={motion.duration.fast}>
-            <View style={styles.replyBanner}>
+            <View style={[styles.replyBanner, { backgroundColor: glass.chipBg, borderTopColor: glass.rimSubtle }]}>
               <View style={styles.replyBannerBar} />
               <View style={styles.replyBannerContent}>
                 <Text style={styles.replyBannerLabel}>
@@ -1399,37 +1525,78 @@ export default function ChatScreen({ navigation }: Props) {
                 style={styles.replyBannerClose}
                 activeScale={0.85}
               >
-                <CloseIcon color={theme.ink.low} size={11} />
+                <CloseIcon color={glass.textMid} size={11} />
               </PressableScale>
             </View>
           </FadeSlideIn>
         )}
 
         {/* ── Input Bar ── */}
-        <View style={styles.inputBar}>
+        <GlassPanel
+          glass={glass}
+          style={[
+            styles.inputBar,
+            { borderTopColor: glass.rim, paddingBottom: keyboardVisible ? 0 : insets.bottom },
+          ]}
+        >
           <PressableScale
             onPress={handleAttachPress}
-            style={styles.attachBtn}
+            style={[styles.attachBtn, { backgroundColor: glass.chipBg, borderColor: glass.chipBorder }]}
             activeScale={0.86}
             disabled={isAttaching}
           >
             {isAttaching ? (
-              <ActivityIndicator size="small" color={theme.ink.low} />
+              <ActivityIndicator size="small" color={glass.textMax} />
             ) : (
-              <CameraIcon color={theme.ink.low} size={20} />
+              <CameraIcon color={glass.textMax} size={20} />
             )}
           </PressableScale>
 
-          <View style={styles.inputWrapper}>
+          <Animated.View
+            style={[styles.inputWrapper, { transform: [{ translateY: inputDragY }] }]}
+            {...inputPanResponder.panHandlers}
+          >
             <TextInput
-              style={styles.textInput}
+              style={[styles.textInput, { color: glass.inputText }]}
               placeholder="Aur btaao"
-              placeholderTextColor={theme.ink.faint}
+              placeholderTextColor={glass.inputPlaceholder}
               multiline
               value={inputMessage}
               onChangeText={handleTextChange}
               maxLength={MAX_CHARS}
             />
+
+            {/* Swiping the pill upward sends the draft; tapping this chevron
+                does the same thing for anyone who'd rather just tap. */}
+            <Animated.View
+              style={[
+                styles.swipeSendHint,
+                {
+                  opacity: Animated.multiply(
+                    sendAppear,
+                    sendFly.interpolate({ inputRange: [0, 1], outputRange: [1, 0] })
+                  ),
+                  transform: [
+                    {
+                      translateY: Animated.add(
+                        sendAppear.interpolate({ inputRange: [0, 1], outputRange: [6, 0] }),
+                        sendFly.interpolate({ inputRange: [0, 1], outputRange: [0, -22] })
+                      ),
+                    },
+                  ],
+                },
+              ]}
+              pointerEvents={hasDraft ? 'auto' : 'none'}
+            >
+              <PressableScale
+                onPress={handleSend}
+                activeScale={0.8}
+                hitSlop={{ top: 16, bottom: 16, left: 16, right: 16 }}
+              >
+                <ArrowUpIcon size={15} color={glass.inputText} />
+              </PressableScale>
+            </Animated.View>
+
             {showCharCounter && (
               <Text
                 style={[styles.charCounter, charCount >= MAX_CHARS && styles.charCounterMax]}
@@ -1438,66 +1605,13 @@ export default function ChatScreen({ navigation }: Props) {
                 {MAX_CHARS - charCount}
               </Text>
             )}
-          </View>
-
-          <TouchableOpacity onPress={handleSend} disabled={!hasDraft} activeOpacity={0.85}>
-            <Animated.View
-              style={[
-                styles.sendBtn,
-                {
-                  transform: [
-                    {
-                      scale: Animated.multiply(
-                        sendPress,
-                        sendAppear.interpolate({ inputRange: [0, 1], outputRange: [0.86, 1] })
-                      ),
-                    },
-                  ],
-                  opacity: sendAppear.interpolate({
-                    inputRange: [0, 1],
-                    outputRange: [0.38, 1],
-                  }),
-                },
-              ]}
-            >
-              {/* The plane itself launches out of the button on send */}
-              <Animated.View
-                style={{
-                  opacity: sendFly.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }),
-                  transform: [
-                    {
-                      translateX: sendFly.interpolate({
-                        inputRange: [0, 1],
-                        outputRange: [0, 22],
-                      }),
-                    },
-                    {
-                      translateY: sendFly.interpolate({
-                        inputRange: [0, 1],
-                        outputRange: [0, -14],
-                      }),
-                    },
-                    {
-                      scale: sendFly.interpolate({
-                        inputRange: [0, 1],
-                        outputRange: [1, 0.6],
-                      }),
-                    },
-                  ],
-                  // Nudge right so the dart reads as centred in the circle
-                  marginLeft: 2,
-                }}
-              >
-                <SendIcon size={18} color={theme.palette.onAccent} notchColor={theme.palette.accent} />
-              </Animated.View>
-            </Animated.View>
-          </TouchableOpacity>
-        </View>
+          </Animated.View>
+        </GlassPanel>
       </KeyboardAvoidingView>
 
       {/*
-        Full-screen photo viewer. Deliberately has no save or share action —
-        these pictures are meant to disappear, and the countdown keeps running
+        Full-screen photo viewer, with a download button that saves the photo
+        to the device gallery. The disappearing-message countdown keeps running
         underneath while the viewer is open.
       */}
       <Modal
@@ -1522,7 +1636,20 @@ export default function ChatScreen({ navigation }: Props) {
             style={[styles.viewerClose, { top: insets.top + space.sm }]}
             activeScale={0.85}
           >
-            <CloseIcon color={theme.palette.onAccent} size={14} />
+            <CloseIcon color="#FFFFFF" size={14} />
+          </PressableScale>
+
+          <PressableScale
+            onPress={handleSavePhoto}
+            disabled={isSavingPhoto}
+            style={[styles.viewerSave, { bottom: insets.bottom + space.lg }]}
+            activeScale={0.92}
+          >
+            {isSavingPhoto ? (
+              <ActivityIndicator size="small" color="#FFFFFF" />
+            ) : (
+              <Text style={styles.viewerSaveText}>Download</Text>
+            )}
           </PressableScale>
         </View>
       </Modal>
@@ -1534,11 +1661,13 @@ export default function ChatScreen({ navigation }: Props) {
 // ─── STYLES ─────────────────────────────────────────────────────────────
 // ═══════════════════════════════════════════════════════════════════════════
 
-const createStyles = (t: Theme) =>
-  StyleSheet.create({
+const createStyles = (t: Theme) => {
+  const g = getGlass(t);
+
+  return StyleSheet.create({
     container: {
       flex: 1,
-      backgroundColor: t.chat.canvas,
+      backgroundColor: g.canvas,
     },
     flex: {
       flex: 1,
@@ -1547,7 +1676,7 @@ const createStyles = (t: Theme) =>
     // ── Loading / lock mark ──
     loadingContainer: {
       flex: 1,
-      backgroundColor: t.chat.canvas,
+      backgroundColor: g.canvas,
       justifyContent: 'center',
       alignItems: 'center',
     },
@@ -1562,19 +1691,19 @@ const createStyles = (t: Theme) =>
       borderTopRightRadius: 10,
       borderWidth: 2,
       borderBottomWidth: 0,
-      borderColor: t.ink.faint,
+      borderColor: g.textHigh,
     },
     lockBody: {
       width: 28,
       height: 21,
       borderRadius: radius.xs,
       borderWidth: 2,
-      borderColor: t.ink.low,
+      borderColor: g.textHigh,
       marginTop: -1,
     },
     loadingText: {
       ...type.callout,
-      color: t.ink.low,
+      color: g.textMid,
     },
 
     // ── Header ──
@@ -1583,14 +1712,14 @@ const createStyles = (t: Theme) =>
       alignItems: 'center',
       paddingHorizontal: space.sm,
       paddingVertical: space.sm,
-      backgroundColor: t.surfaces.bar,
-      borderBottomWidth: StyleSheet.hairlineWidth,
-      borderBottomColor: t.borders.default,
+      overflow: 'hidden',
+      borderBottomWidth: 1,
     },
     headerBackBtn: {
-      width: 34,
-      height: 34,
-      borderRadius: 17,
+      width: 36,
+      height: 36,
+      borderRadius: 18,
+      borderWidth: 1,
       justifyContent: 'center',
       alignItems: 'center',
     },
@@ -1598,27 +1727,27 @@ const createStyles = (t: Theme) =>
       flex: 1,
       flexDirection: 'row',
       alignItems: 'center',
-      marginLeft: space.xs,
+      marginLeft: space.sm,
     },
     avatarContainer: {
       position: 'relative',
-      width: 36,
-      height: 36,
+      width: 38,
+      height: 38,
     },
     avatar: {
-      width: 36,
-      height: 36,
-      borderRadius: 18,
-      backgroundColor: t.surfaces.washStrong,
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: t.borders.default,
+      width: 38,
+      height: 38,
+      borderRadius: 19,
+      backgroundColor: g.chipBg,
+      borderWidth: 1,
+      borderColor: g.chipBorder,
       justifyContent: 'center',
       alignItems: 'center',
     },
     avatarText: {
       fontSize: 14,
       fontWeight: '700',
-      color: t.ink.high,
+      color: g.textMax,
     },
     onlineDotWrap: {
       position: 'absolute',
@@ -1636,9 +1765,9 @@ const createStyles = (t: Theme) =>
       width: 9,
       height: 9,
       borderRadius: 5,
-      backgroundColor: t.ink.max,
+      backgroundColor: '#FFFFFF',
       borderWidth: 1.5,
-      borderColor: t.surfaces.bar,
+      borderColor: g.accent,
     },
     headerInfo: {
       marginLeft: space.sm,
@@ -1646,17 +1775,17 @@ const createStyles = (t: Theme) =>
     },
     headerName: {
       fontSize: 15,
-      fontWeight: '600',
+      fontWeight: '700',
       letterSpacing: -0.2,
-      color: t.ink.max,
+      color: g.textMax,
     },
     headerPresence: {
       fontSize: 11,
-      color: t.ink.low,
+      color: g.textMid,
       marginTop: 1,
     },
     headerSpacer: {
-      width: space.sm,
+      width: 36,
     },
 
     // ── Offline Banner ──
@@ -1664,23 +1793,21 @@ const createStyles = (t: Theme) =>
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'center',
-      backgroundColor: t.surfaces.wash,
       paddingVertical: 6,
       paddingHorizontal: space.base,
-      borderBottomWidth: StyleSheet.hairlineWidth,
-      borderBottomColor: t.borders.subtle,
+      borderBottomWidth: 1,
     },
     offlineDot: {
       width: 5,
       height: 5,
       borderRadius: 3,
-      backgroundColor: t.ink.mid,
+      backgroundColor: g.textMid,
       marginRight: space.sm,
     },
     offlineText: {
       fontSize: 11,
-      fontWeight: '500',
-      color: t.ink.mid,
+      fontWeight: '600',
+      color: g.textHigh,
     },
 
     // ── List ──
@@ -1700,16 +1827,16 @@ const createStyles = (t: Theme) =>
       marginVertical: space.md,
     },
     datePill: {
-      backgroundColor: t.surfaces.washStrong,
       paddingHorizontal: space.md,
       paddingVertical: 4,
-      borderRadius: radius.sm,
+      borderRadius: radius.pill,
+      borderWidth: 1,
     },
     datePillText: {
       fontSize: 10,
-      fontWeight: '600',
+      fontWeight: '700',
       letterSpacing: 0.4,
-      color: t.ink.mid,
+      color: g.textHigh,
       textTransform: 'uppercase',
     },
 
@@ -1746,27 +1873,24 @@ const createStyles = (t: Theme) =>
       flexShrink: 1,
     },
     bubble: {
-      borderRadius: radius.md,
+      borderRadius: radius.lg,
       paddingHorizontal: space.sm + 2,
       paddingTop: 6,
       paddingBottom: 5,
       flexShrink: 1,
-      ...t.elevation.sm,
     },
     myBubble: {
-      backgroundColor: t.chat.outBubble,
+      backgroundColor: g.out,
     },
+    // Plain text, no container — matches the reference design exactly.
     theirBubble: {
-      backgroundColor: t.chat.inBubble,
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: t.chat.inBorder,
+      paddingHorizontal: 2,
+      paddingTop: 2,
+      paddingBottom: 2,
     },
     // Square off the corner the tail joins onto
     myBubbleTailCorner: {
       borderTopRightRadius: 3,
-    },
-    theirBubbleTailCorner: {
-      borderTopLeftRadius: 3,
     },
     tailMe: {
       position: 'absolute',
@@ -1778,19 +1902,7 @@ const createStyles = (t: Theme) =>
       borderBottomWidth: TAIL_H,
       borderLeftWidth: TAIL_W,
       borderBottomColor: 'transparent',
-      borderLeftColor: t.chat.outBubble,
-    },
-    tailThem: {
-      position: 'absolute',
-      top: 0,
-      left: -TAIL_W + 1,
-      width: 0,
-      height: 0,
-      borderTopWidth: 0,
-      borderBottomWidth: TAIL_H,
-      borderRightWidth: TAIL_W,
-      borderBottomColor: 'transparent',
-      borderRightColor: t.chat.inBubble,
+      borderLeftColor: g.out,
     },
 
     // Text + inline meta share a wrapping row
@@ -1800,18 +1912,18 @@ const createStyles = (t: Theme) =>
       alignItems: 'flex-end',
     },
     bubbleText: {
-      fontSize: 14.5,
-      lineHeight: 19,
+      fontSize: 15,
+      lineHeight: 20,
       letterSpacing: -0.1,
       // Without this a single unbroken token (a long URL, "aaaaaa…") measures
       // wider than the bubble and pushes past the cap instead of wrapping
       flexShrink: 1,
     },
     myBubbleText: {
-      color: t.chat.outText,
+      color: '#FFFFFF',
     },
     theirBubbleText: {
-      color: t.chat.inText,
+      color: '#FFFFFF',
     },
     metaInline: {
       flexDirection: 'row',
@@ -1823,14 +1935,14 @@ const createStyles = (t: Theme) =>
     },
     metaTime: {
       fontSize: 10,
-      fontWeight: '500',
+      fontWeight: '600',
       fontVariant: ['tabular-nums'],
     },
     metaTimeMe: {
-      color: t.chat.outMeta,
+      color: 'rgba(255,255,255,0.85)',
     },
     metaTimeThem: {
-      color: t.chat.inMeta,
+      color: g.textMid,
     },
     tickWrapper: {
       marginLeft: 3,
@@ -1847,47 +1959,37 @@ const createStyles = (t: Theme) =>
       overflow: 'hidden',
     },
     quoteMe: {
-      backgroundColor: t.chat.outQuoteBg,
+      backgroundColor: 'rgba(255,255,255,0.2)',
     },
     quoteThem: {
-      backgroundColor: t.chat.inQuoteBg,
+      backgroundColor: 'rgba(255,255,255,0.16)',
+      paddingLeft: space.xs,
     },
     quoteBar: {
       width: 3,
       alignSelf: 'stretch',
       marginRight: space.sm,
       minHeight: 16,
-    },
-    quoteBarMe: {
-      backgroundColor: t.chat.outQuoteBar,
-    },
-    quoteBarThem: {
-      backgroundColor: t.chat.inQuoteBar,
+      backgroundColor: 'rgba(255,255,255,0.7)',
     },
     quoteText: {
       fontSize: 12,
       lineHeight: 16,
       flexShrink: 1,
-    },
-    quoteTextMe: {
-      color: t.chat.outMeta,
-    },
-    quoteTextThem: {
-      color: t.chat.inMeta,
+      color: g.textHigh,
     },
 
     // ── Reaction ──
     reactionBadge: {
       position: 'absolute',
       bottom: -8,
-      backgroundColor: t.surfaces.raised,
+      backgroundColor: g.accent,
       borderRadius: radius.pill,
-      paddingHorizontal: 4,
-      paddingVertical: 1,
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: t.borders.default,
+      paddingHorizontal: 5,
+      paddingVertical: 2,
+      borderWidth: 1.5,
+      borderColor: '#FFFFFF',
       zIndex: 10,
-      ...t.elevation.sm,
     },
     reactionBadgeMe: {
       right: space.sm,
@@ -1897,7 +1999,7 @@ const createStyles = (t: Theme) =>
     },
     reactionGlyph: {
       fontSize: 10,
-      color: t.ink.max,
+      color: '#FFFFFF',
     },
 
     // ── Burn countdown ──
@@ -1935,22 +2037,19 @@ const createStyles = (t: Theme) =>
     typingBubble: {
       flexDirection: 'row',
       alignItems: 'center',
-      backgroundColor: t.chat.inBubble,
       paddingHorizontal: space.md,
       paddingVertical: 10,
       borderRadius: radius.md,
       borderTopLeftRadius: 3,
       alignSelf: 'flex-start',
       gap: 4,
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: t.chat.inBorder,
-      ...t.elevation.sm,
+      borderWidth: 1,
     },
     typingDot: {
       width: 6,
       height: 6,
       borderRadius: 3,
-      backgroundColor: t.chat.inMeta,
+      backgroundColor: g.textMid,
     },
 
     // ── Hearts ──
@@ -1963,7 +2062,7 @@ const createStyles = (t: Theme) =>
       bottom: 80,
     },
     floatingHeartGlyph: {
-      color: t.ink.max,
+      color: '#FFFFFF',
     },
 
     // ── Empty state ──
@@ -1978,11 +2077,11 @@ const createStyles = (t: Theme) =>
     },
     emptyTitle: {
       ...type.heading,
-      color: t.ink.mid,
+      color: g.textHigh,
     },
     emptySubtitle: {
       ...type.caption,
-      color: t.ink.faint,
+      color: g.textMid,
       marginTop: space.xs,
     },
 
@@ -1997,29 +2096,25 @@ const createStyles = (t: Theme) =>
       width: 36,
       height: 36,
       borderRadius: 18,
-      backgroundColor: t.surfaces.bar,
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: t.borders.default,
+      borderWidth: 1,
       justifyContent: 'center',
       alignItems: 'center',
-      ...t.elevation.md,
+      overflow: 'hidden',
     },
 
     // ── Notice / reply banners ──
     noticeBanner: {
       flexDirection: 'row',
       alignItems: 'center',
-      backgroundColor: t.surfaces.bar,
       paddingHorizontal: space.md,
       paddingVertical: space.sm,
-      borderTopWidth: StyleSheet.hairlineWidth,
-      borderTopColor: t.borders.default,
+      borderTopWidth: 1,
     },
     noticeBar: {
       width: 2,
       alignSelf: 'stretch',
       minHeight: 28,
-      backgroundColor: t.ink.max,
+      backgroundColor: '#FFFFFF',
       borderRadius: 1,
       marginRight: space.md,
     },
@@ -2031,12 +2126,12 @@ const createStyles = (t: Theme) =>
       fontWeight: '700',
       letterSpacing: 0.4,
       textTransform: 'uppercase',
-      color: t.ink.max,
+      color: '#FFFFFF',
     },
     noticeText: {
       fontSize: 11,
       lineHeight: 15,
-      color: t.ink.mid,
+      color: g.textHigh,
       marginTop: 1,
     },
     noticeClose: {
@@ -2045,17 +2140,15 @@ const createStyles = (t: Theme) =>
     replyBanner: {
       flexDirection: 'row',
       alignItems: 'center',
-      backgroundColor: t.surfaces.bar,
       paddingHorizontal: space.md,
       paddingVertical: space.sm,
-      borderTopWidth: StyleSheet.hairlineWidth,
-      borderTopColor: t.borders.default,
+      borderTopWidth: 1,
     },
     replyBannerBar: {
       width: 2,
       alignSelf: 'stretch',
       minHeight: 28,
-      backgroundColor: t.ink.mid,
+      backgroundColor: g.textMid,
       borderRadius: 1,
       marginRight: space.md,
     },
@@ -2065,11 +2158,11 @@ const createStyles = (t: Theme) =>
     replyBannerLabel: {
       fontSize: 11,
       fontWeight: '700',
-      color: t.ink.high,
+      color: '#FFFFFF',
     },
     replyBannerText: {
       fontSize: 12,
-      color: t.ink.low,
+      color: g.textHigh,
       marginTop: 1,
     },
     replyBannerClose: {
@@ -2080,30 +2173,29 @@ const createStyles = (t: Theme) =>
     inputBar: {
       flexDirection: 'row',
       alignItems: 'flex-end',
-      paddingHorizontal: space.sm,
-      paddingVertical: space.sm,
+      paddingHorizontal: space.md,
+      paddingTop: space.sm,
+      paddingBottom: 0,
       gap: space.sm,
-      backgroundColor: t.surfaces.bar,
+      overflow: 'hidden',
       borderTopWidth: StyleSheet.hairlineWidth,
-      borderTopColor: t.borders.default,
     },
     inputWrapper: {
       flex: 1,
       position: 'relative',
     },
     attachBtn: {
-      width: 40,
-      height: 40,
-      borderRadius: radius.pill,
+      width: 44,
+      height: 44,
+      borderRadius: 22,
       alignItems: 'center',
       justifyContent: 'center',
-      backgroundColor: t.surfaces.sunken,
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: t.borders.subtle,
+      borderWidth: 1,
     },
     photo: {
       borderRadius: radius.md,
-      backgroundColor: t.surfaces.sunken,
+      backgroundColor: 'rgba(255,255,255,0.15)',
+      borderWidth: 1,
       overflow: 'hidden',
     },
     photoPlaceholder: {
@@ -2138,6 +2230,21 @@ const createStyles = (t: Theme) =>
       width: '100%',
       height: '100%',
     },
+    viewerSave: {
+      position: 'absolute',
+      alignSelf: 'center',
+      minWidth: 120,
+      height: 40,
+      paddingHorizontal: space.lg,
+      borderRadius: radius.pill,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: 'rgba(255,255,255,0.12)',
+    },
+    viewerSaveText: {
+      ...type.bodyStrong,
+      color: '#FFFFFF',
+    },
     viewerClose: {
       position: 'absolute',
       right: space.md,
@@ -2147,17 +2254,18 @@ const createStyles = (t: Theme) =>
       alignItems: 'center',
       justifyContent: 'center',
       backgroundColor: 'rgba(255,255,255,0.16)',
+      borderWidth: 1,
+      borderColor: 'rgba(255,255,255,0.3)',
     },
     textInput: {
-      backgroundColor: t.surfaces.sunken,
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: t.borders.subtle,
-      borderRadius: radius.xl,
-      color: t.ink.max,
-      paddingHorizontal: space.base,
-      paddingTop: Platform.OS === 'ios' ? 9 : 7,
-      paddingBottom: Platform.OS === 'ios' ? 9 : 7,
-      fontSize: 14.5,
+      backgroundColor: 'transparent',
+      paddingLeft: space.xs,
+      // Extra room so typed text never runs under the swipe-to-send hint.
+      paddingRight: space.xl + space.md,
+      paddingTop: Platform.OS === 'ios' ? 11 : 9,
+      paddingBottom: Platform.OS === 'ios' ? 11 : 9,
+      fontSize: 15,
+      fontWeight: '500',
       maxHeight: 110,
       lineHeight: 19,
     },
@@ -2166,22 +2274,24 @@ const createStyles = (t: Theme) =>
       bottom: -13,
       right: space.md,
       fontSize: 10,
-      color: t.ink.faint,
+      color: g.inputPlaceholder,
       fontVariant: ['tabular-nums'],
     },
     charCounterMax: {
-      color: t.ink.max,
+      color: g.inputText,
       fontWeight: '700',
     },
 
-    // ── Send button ──
-    sendBtn: {
-      width: 42,
-      height: 42,
-      borderRadius: 21,
-      backgroundColor: t.palette.accent,
+    // ── Swipe-to-send hint ──
+    // No button — this small chevron just marks where to swipe, vertically
+    // centred on the pill regardless of how tall it grows with multiline text.
+    swipeSendHint: {
+      position: 'absolute',
+      right: space.md + 2,
+      top: 0,
+      bottom: 0,
       justifyContent: 'center',
       alignItems: 'center',
-      ...t.elevation.md,
     },
   });
+};

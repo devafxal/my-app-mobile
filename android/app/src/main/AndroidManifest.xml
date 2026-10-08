@@ -10,6 +10,7 @@
     <!-- Taking a photo to send. Not required=false, so the app still installs
          on a device without a camera; the gallery path keeps working. -->
     <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
 
     <application

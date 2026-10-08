@@ -6,7 +6,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 // On a physical phone this has to be changed to the computer's LAN IP
 // (e.g. http://192.168.1.20:3000), which is why it is editable in the app.
 // For production, point to the Railway deployment.
-export const DEFAULT_SERVER_URL = 'https://web-production-27dec.up.railway.app';
+export const DEFAULT_SERVER_URL = 'https://tasky-h61r.onrender.com';
 
 /** Trim trailing slashes and add a scheme if the user typed a bare host. */
 export const normalizeServerUrl = (raw: string): string => {
@@ -19,12 +19,21 @@ export const normalizeServerUrl = (raw: string): string => {
 /** 'system' follows the OS appearance setting. */
 export type ThemeMode = 'system' | 'light' | 'dark';
 
+/**
+ * Which hidden gesture unlocks the chat from the Todo screen. Only one is
+ * ever live at a time — splitting attention across two secret doors just
+ * doubles the chance of giving one away by accident.
+ */
+export type SecretGesture = 'tap' | 'hold';
+
 interface SettingsState {
   serverUrl: string;
   themeMode: ThemeMode;
+  secretGesture: SecretGesture;
   hasHydrated: boolean;
   setServerUrl: (url: string) => void;
   setThemeMode: (mode: ThemeMode) => void;
+  setSecretGesture: (gesture: SecretGesture) => void;
   setHasHydrated: (value: boolean) => void;
 }
 
@@ -33,15 +42,21 @@ export const useSettingsStore = create<SettingsState>()(
     (set) => ({
       serverUrl: DEFAULT_SERVER_URL,
       themeMode: 'system',
+      secretGesture: 'hold',
       hasHydrated: false,
       setServerUrl: (url) => set({ serverUrl: normalizeServerUrl(url) }),
       setThemeMode: (mode) => set({ themeMode: mode }),
+      setSecretGesture: (gesture) => set({ secretGesture: gesture }),
       setHasHydrated: (value) => set({ hasHydrated: value }),
     }),
     {
       name: 'chat-app-settings',
       storage: createJSONStorage(() => AsyncStorage),
-      partialize: (state) => ({ serverUrl: state.serverUrl, themeMode: state.themeMode }),
+      partialize: (state) => ({
+        serverUrl: state.serverUrl,
+        themeMode: state.themeMode,
+        secretGesture: state.secretGesture,
+      }),
       onRehydrateStorage: () => (state) => {
         state?.setHasHydrated(true);
       },

@@ -7,56 +7,40 @@ import { StyleSheet, View } from 'react-native';
  * `react-native-svg` would give cleaner geometry, but it's a native module —
  * adding it means every install needs a fresh gradle/pod build before the app
  * will even launch. These shapes keep the whole UI reloadable over Metro.
- *
- * The paper plane is built the way the shape actually reads: a solid
- * right-pointing triangle with a wedge of the *button's own colour* punched
- * into its left edge. That notch is what separates a send glyph from a plain
- * play triangle, and it's why these take a `color` (the mark) plus a
- * `notchColor` (whatever sits behind it).
  */
 
-interface SendIconProps {
-  size?: number;
-  /** Colour of the plane itself */
-  color: string;
-  /** The surface behind it — used to carve the tail notch */
-  notchColor: string;
-}
-
-export function SendIcon({ size = 20, color, notchColor }: SendIconProps) {
-  // Proportions tuned against WhatsApp's glyph: a wide, shallow dart
-  const h = size;
-  const w = size * 1.05;
+/**
+ * Send glyph: a simple upward arrow (arrowhead + stem), the iMessage-style
+ * mark. Unlike a paper-plane dart, it's a single flat colour with no notch
+ * to carve out of the surface behind it — so it stays clean sitting on a
+ * gradient button, where a notch cut to one solid colour would show a seam.
+ */
+export function ArrowUpIcon({ size = 18, color }: { size?: number; color: string }) {
+  const headWidth = size * 0.92;
+  const stemWidth = size * 0.26;
+  const stemHeight = size * 0.46;
 
   return (
-    <View style={{ width: w, height: h, justifyContent: 'center' }}>
-      {/* Body: right-pointing triangle */}
+    <View style={{ width: headWidth, alignItems: 'center' }}>
       <View
         style={{
           width: 0,
           height: 0,
-          borderTopWidth: h / 2,
-          borderBottomWidth: h / 2,
-          borderLeftWidth: w,
-          borderTopColor: 'transparent',
-          borderBottomColor: 'transparent',
-          borderLeftColor: color,
+          borderLeftWidth: headWidth / 2,
+          borderRightWidth: headWidth / 2,
+          borderBottomWidth: headWidth * 0.62,
+          borderLeftColor: 'transparent',
+          borderRightColor: 'transparent',
+          borderBottomColor: color,
         }}
       />
-      {/* Tail notch: a wedge of the background carved out of the left edge */}
       <View
         style={{
-          position: 'absolute',
-          left: 0,
-          top: h / 2 - h * 0.22,
-          width: 0,
-          height: 0,
-          borderTopWidth: h * 0.22,
-          borderBottomWidth: h * 0.22,
-          borderLeftWidth: w * 0.42,
-          borderTopColor: 'transparent',
-          borderBottomColor: 'transparent',
-          borderLeftColor: notchColor,
+          width: stemWidth,
+          height: stemHeight,
+          backgroundColor: color,
+          marginTop: -1,
+          borderRadius: stemWidth / 2,
         }}
       />
     </View>

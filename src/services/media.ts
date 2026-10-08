@@ -6,8 +6,11 @@ import {
   ImageLibraryOptions,
   CameraOptions,
 } from 'react-native-image-picker';
+import RNFS from 'react-native-fs';
+import { CameraRoll } from '@react-native-camera-roll/camera-roll';
 import apiClient from '../api';
 import { saveCachedMedia } from '../db';
+import { pendingExternalPicker } from '../hooks/useHideOnBackground';
 
 export interface PickedImage {
   uri: string;
@@ -68,7 +71,17 @@ const ensureCameraPermission = async (): Promise<boolean> => {
 
 export const pickImageFromGallery = async (): Promise<PickedImage | null> => {
   const options: ImageLibraryOptions = { ...PICKER_OPTIONS, selectionLimit: 1 };
-  const response = await launchImageLibrary(options);
+
+  // The gallery picker is a separate Activity — it backgrounds this app for
+  // as long as it's open, which would otherwise trip the privacy guard that
+  // bounces the chat screen back to the decoy task list mid-pick.
+  pendingExternalPicker.current = true;
+  let response;
+  try {
+    response = await launchImageLibrary(options);
+  } finally {
+    pendingExternalPicker.current = false;
+  }
 
   if (response.didCancel) return null;
   if (response.errorCode) {
@@ -78,18 +91,26 @@ export const pickImageFromGallery = async (): Promise<PickedImage | null> => {
 };
 
 export const takePhotoWithCamera = async (): Promise<PickedImage | null> => {
-  if (!(await ensureCameraPermission())) {
-    throw new Error('Camera permission denied');
-  }
+  // The permission prompt is its own system Activity too (GrantPermissionsActivity),
+  // not just the camera itself — it backgrounds this app before launchCamera
+  // is even called, so the guard has to be suppressed from here, not after.
+  pendingExternalPicker.current = true;
+  try {
+    if (!(await ensureCameraPermission())) {
+      throw new Error('Camera permission denied');
+    }
 
-  const options: CameraOptions = { ...PICKER_OPTIONS, saveToPhotos: false };
-  const response = await launchCamera(options);
+    const options: CameraOptions = { ...PICKER_OPTIONS, saveToPhotos: false };
+    const response = await launchCamera(options);
 
-  if (response.didCancel) return null;
-  if (response.errorCode) {
-    throw new Error(response.errorMessage || 'Could not open the camera');
+    if (response.didCancel) return null;
+    if (response.errorCode) {
+      throw new Error(response.errorMessage || 'Could not open the camera');
+    }
+    return toPickedImage(response.assets?.[0]);
+  } finally {
+    pendingExternalPicker.current = false;
   }
-  return toPickedImage(response.assets?.[0]);
 };
 
 /**
@@ -150,5 +171,38 @@ export const downloadImage = async (
       return null;
     }
     throw error;
+  }
+};
+
+/** Android 9 and below need WRITE_EXTERNAL_STORAGE to add to the gallery. */
+const ensureSavePermission = async (): Promise<boolean> => {
+  if (Platform.OS !== 'android' || Number(Platform.Version) >= 29) return true;
+
+  const permission = PermissionsAndroid.PERMISSIONS.WRITE_EXTERNAL_STORAGE;
+  if (await PermissionsAndroid.check(permission)) return true;
+
+  const result = await PermissionsAndroid.request(permission, {
+    title: 'Storage access',
+    message: 'Allow the app to save photos to your gallery.',
+    buttonPositive: 'Allow',
+  });
+  return result === PermissionsAndroid.RESULTS.GRANTED;
+};
+
+/** Write a photo's data URI to the device gallery. Throws if it can't. */
+export const savePhotoToGallery = async (dataUri: string): Promise<void> => {
+  const match = /^data:(image\/[a-zA-Z0-9.+-]+);base64,(.*)$/s.exec(dataUri);
+  if (!match) throw new Error('Unsupported image data');
+
+  if (!(await ensureSavePermission())) throw new Error('Storage permission denied');
+
+  const ext = match[1].split('/')[1].replace('jpeg', 'jpg');
+  const path = `${RNFS.CachesDirectoryPath}/photo-${Date.now()}.${ext}`;
+  await RNFS.writeFile(path, match[2], 'base64');
+  try {
+    await CameraRoll.saveAsset(`file://${path}`, { type: 'photo' });
+  } finally {
+    // The gallery has its own copy now; don't leave a second one in the cache
+    RNFS.unlink(path).catch(() => {});
   }
 };

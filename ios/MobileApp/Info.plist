@@ -28,6 +28,8 @@
 	<true/>
 	<key>NSCameraUsageDescription</key>
 	<string>Take a photo to send in a chat.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Save photos from a chat to your library.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Choose a photo from your library to send in a chat.</string>
 	<key>NSAppTransportSecurity</key>
